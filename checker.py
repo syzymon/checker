@@ -8,7 +8,7 @@ def script_directory():
     return Path(__file__).parents[0]
 
 
-def get_testdata(gen_cmd):
+def get_testdata(gen_cmd):  # TODO try to remove shell=True
     proc = subprocess.Popen(gen_cmd, stdout=subprocess.PIPE, shell=True)
     stdout, stderr = proc.communicate()
     return stdout
