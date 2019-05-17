@@ -14,22 +14,33 @@ def get_testdata(gen_cmd):  # TODO try to remove shell=True
     return stdout
 
 
-async def run_and_save(prog_number, prog_cmd, input_test):
-    out_filename = f"prog{prog_number}.out"
+async def run_and_save(prog_number, prog_cmd, input_test, stdout):
+    out_filename = f"prog{prog_number}.{'out' if stdout else 'err'}"
+
+    redirect_out = asyncio.subprocess.PIPE
+    redirect_err = asyncio.subprocess.PIPE
+
     with open(out_filename, "wb+") as out_file:
+        if stdout:
+            redirect_out = out_file
+        else:
+            redirect_err = out_file
+
         proc = await asyncio.create_subprocess_shell(
             prog_cmd,
             stdin=asyncio.subprocess.PIPE,
-            stdout=out_file,
-            stderr=asyncio.subprocess.PIPE)
+            stdout=redirect_out,
+            stderr=redirect_err
+        )
         proc.stdin.write(input_test)
+        proc.stdin.close()
         await proc.wait()
     return out_filename
 
 
-async def save_outputs(numbered_prog_cmds, input_test):
+async def save_outputs(numbered_prog_cmds, input_test, stdout):
     programs = [
-        run_and_save(prog_number, prog_cmd, input_test)
+        run_and_save(prog_number, prog_cmd, input_test, stdout)
         for prog_number, prog_cmd in numbered_prog_cmds
     ]
     return [await f for f in asyncio.as_completed(programs)]
@@ -46,10 +57,20 @@ def find_difference(checker_cmd, filenames):
             return filenames[i - 1], filenames[i]
 
 
-def run_test(gen_cmd, checker_cmd, numbered_prog_cmds, ignore_err=True):
+def run_test(gen_cmd, checker_cmd, numbered_prog_cmds, ignore_err):
     input = get_testdata(gen_cmd)
-    out_filenames = asyncio.run(save_outputs(numbered_prog_cmds, input))
+
+    out_filenames = asyncio.run(
+        save_outputs(numbered_prog_cmds, input, stdout=True))
+
     diff = find_difference(checker_cmd, out_filenames)
+
+    if not diff and not ignore_err:
+        err_filenames = asyncio.run(
+            save_outputs(numbered_prog_cmds, input, stdout=False))
+
+        diff = find_difference(checker_cmd, err_filenames)
+
     if diff:
         with open("test.in", "wb+") as test_file:
             test_file.write(input)
@@ -74,9 +95,9 @@ if __name__ == "__main__":
     if len(prog_cmds) < 2:
         raise FileNotFoundError("No enough programs to diff")
 
-    # diff_errors = config["GENERAL"]["ignore_err"]
+    ignore_errors = config["GENERAL"]["ignore_err"] == "True"
 
     tests_passed = 0
-    while run_test(gen_cmd, checker_cmd, prog_cmds):
+    while run_test(gen_cmd, checker_cmd, prog_cmds, ignore_errors):
         tests_passed += 1
         print(tests_passed)
